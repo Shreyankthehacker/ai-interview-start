@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import TypewriterText from '../components/TypewriterText';
 import { Button } from "@/components/ui/button";
@@ -98,7 +97,7 @@ const Interview = () => {
           <div className="bg-blue-50 rounded-lg p-6">
             <TypewriterText 
               text={question} 
-              onComplete={() => speakQuestion(question)}
+              onComplete={() => playQuestion(question)}
             />
           </div>
         </div>
