@@ -3,29 +3,30 @@ import React, { useState, useRef, useEffect } from 'react';
 import TypewriterText from '../components/TypewriterText';
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff } from 'lucide-react';
+import lamejs from 'lamejs';
 
 const Interview = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [question, setQuestion] = useState("Tell me about yourself and your experience.");
   const mediaRecorder = useRef<MediaRecorder | null>(null);
-  const audioChunks = useRef<Blob[]>([]);
+  const audioContext = useRef<AudioContext | null>(null);
+  const audioChunks = useRef<Float32Array[]>([]);
 
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder.current = new MediaRecorder(stream);
+      audioContext.current = new AudioContext();
+      const source = audioContext.current.createMediaStreamSource(stream);
+      const processor = audioContext.current.createScriptProcessor(4096, 1, 1);
       
-      mediaRecorder.current.ondataavailable = (event) => {
-        audioChunks.current.push(event.data);
+      source.connect(processor);
+      processor.connect(audioContext.current.destination);
+      
+      processor.onaudioprocess = (e) => {
+        const inputData = e.inputBuffer.getChannelData(0);
+        audioChunks.current.push(new Float32Array(inputData));
       };
 
-      mediaRecorder.current.onstop = () => {
-        const audioBlob = new Blob(audioChunks.current, { type: 'audio/wav' });
-        // Here you would send the audioBlob to your backend
-        audioChunks.current = [];
-      };
-
-      mediaRecorder.current.start();
       setIsRecording(true);
     } catch (error) {
       console.error('Error accessing microphone:', error);
@@ -33,24 +34,58 @@ const Interview = () => {
   };
 
   const stopRecording = () => {
-    if (mediaRecorder.current && isRecording) {
-      mediaRecorder.current.stop();
+    if (audioContext.current && isRecording) {
+      const mp3encoder = new lamejs.Mp3Encoder(1, audioContext.current.sampleRate, 128);
+      const samples = new Int16Array(concatenateAudioBuffers(audioChunks.current));
+      
+      const mp3Data = [];
+      const mp3buf = mp3encoder.encodeBuffer(samples);
+      if (mp3buf.length > 0) {
+        mp3Data.push(mp3buf);
+      }
+      
+      const end = mp3encoder.flush();
+      if (end.length > 0) {
+        mp3Data.push(end);
+      }
+
+      const blob = new Blob(mp3Data, { type: 'audio/mp3' });
+      // Here you would send the MP3 blob to your backend
+      
+      audioChunks.current = [];
       setIsRecording(false);
-      mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
+      audioContext.current.close();
     }
   };
 
-  const speakQuestion = (text: string) => {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.9;
-    speechSynthesis.speak(utterance);
+  const concatenateAudioBuffers = (buffers: Float32Array[]): Float32Array => {
+    let totalLength = 0;
+    buffers.forEach(buffer => totalLength += buffer.length);
+    const result = new Float32Array(totalLength);
+    let offset = 0;
+    buffers.forEach(buffer => {
+      result.set(buffer, offset);
+      offset += buffer.length;
+    });
+    return result;
+  };
+
+  const playQuestion = async (text: string) => {
+    try {
+      // Here you would fetch the MP3 audio from your backend
+      // For now, we'll use text-to-speech as a fallback
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.9;
+      speechSynthesis.speak(utterance);
+    } catch (error) {
+      console.error('Error playing audio:', error);
+    }
   };
 
   useEffect(() => {
     return () => {
-      if (mediaRecorder.current && isRecording) {
-        mediaRecorder.current.stop();
-        mediaRecorder.current.stream.getTracks().forEach(track => track.stop());
+      if (audioContext.current && isRecording) {
+        audioContext.current.close();
       }
     };
   }, [isRecording]);
